@@ -113,12 +113,12 @@ int uthread_create( void *( *start_routine )( void * ), void *arg ) {
 	// start the state at Init
 	tcb->state = Init;
 
-	// assign an id number and increment for the next thread
-	if (tid >= MAX_THREADS - 2) {
+	// assign an id number
+	if (tid >= MAX_THREADS - 1) {
 		free(tcb);
 		printf("uthread_create: Exceeded max number of threads: %d\n", MAX_THREADS);
 	}
-	tcb->tid = tid++;
+	tcb->tid = tid;
 
 	// allocate a stack
 	tcb->stack_size = STACK_SIZE;
@@ -146,6 +146,9 @@ int uthread_create( void *( *start_routine )( void * ), void *arg ) {
 
 	// @todo: add the new_tcb to the thread scheduler queue
 
+    // increment tid after storing context
+    tid++;
+
 	return tcb->tid;
 }       
 
@@ -154,7 +157,7 @@ int uthread_yield( void ) {                                                  // 
 }             
 
 int uthread_self( void ) {                                                   // returns tid
-    return 0;
+    return tid;
 }        
 
 int uthread_join( int tid, void **retval ) {
