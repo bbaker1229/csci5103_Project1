@@ -82,6 +82,7 @@ int tid;
 // a linked list.
 sigjmp_buf jbuf[MAX_THREADS];
 TCB* control_blocks[MAX_THREADS];
+TCB* running_thread;
 
 // test and set atomic lock mechanism
 int TAS(volatile int *addr, int newval){
@@ -137,6 +138,8 @@ int uthread_create( void *( *start_routine )( void * ), void *arg ) {
 	// save a pointer to our tcb
 	control_blocks[tcb->tid] = &tcb;
 
+	running_thread = &control_blocks[tcb->tid];
+
 	// store context for jumping
 	// @todo: I'm not sure this belongs in the create function
     sigsetjmp(jbuf[tcb->tid],1);
@@ -152,12 +155,16 @@ int uthread_create( void *( *start_routine )( void * ), void *arg ) {
 	return tcb->tid;
 }       
 
-int uthread_yield( void ) {                                                  // return value not meaningful
+int uthread_yield( void ) {
+	// change state to ready
+	// store context
+	// move thread to waiting queue
     return 0;
 }             
 
+// Returns currently running thread id.
 int uthread_self( void ) {                                                   // returns tid
-    return tid;
+    return running_thread->tid;
 }        
 
 int uthread_join( int tid, void **retval ) {
