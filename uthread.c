@@ -121,6 +121,13 @@ void ready_queue_add(TCB* tcb) {
 	}
 }
 
+void uthread_setup()
+{
+	// allocate the control block structure
+	main_thread = (TCB*) malloc(sizeof(TCB));
+
+}
+
 
 /* * * * * * * * * * * */
 /* pthread equivalents */
@@ -179,7 +186,11 @@ void uthread_start(int tid) {
 	}
 
 	running_thread = index;
-    siglongjmp(index->jbuf,1);
+
+	// save our context before jumping!
+    if ( sigsetjmp(main_thread->jbuf,1) == 0 ) {
+    	siglongjmp(index->jbuf,1);
+    }
 }
 
 int uthread_yield( void ) {
@@ -205,6 +216,7 @@ int uthread_init( int time_slice ) {
 }
 
 int uthread_terminate( int tid ) {
+	longjmp(main_thread->jbuf, 1);
     return 0;
 }
 
