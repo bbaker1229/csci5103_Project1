@@ -17,11 +17,13 @@ void* single_thread_example()
         }
         sleep(1);
     }
+    uthread_terminate(uthread_self());
     return NULL;
 }
 
 int main(int argc, const char* argv[])
 {
-    uthread_create(single_thread_example, NULL);
+    int tid = uthread_create(single_thread_example, NULL);
+    uthread_start(tid);
     return 0;
 }

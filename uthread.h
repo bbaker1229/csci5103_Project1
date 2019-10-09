@@ -15,6 +15,9 @@ uthread_yield( void );                                                   // retu
 extern int 
 uthread_self( void );                                                    // returns tid
 
+void
+uthread_start(int tid);
+
 extern int 
 uthread_join( int tid, void **retval );
 

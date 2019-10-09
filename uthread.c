@@ -1,5 +1,6 @@
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <setjmp.h>
 #include <signal.h>
 #include <string.h>
@@ -10,7 +11,6 @@
 
 #define SECOND 			1000000 	// time in microseconds
 #define STACK_SIZE 		4096	// size in bytes
-#define MAX_THREADS		64
 
 #ifdef __x86_64__
 
@@ -65,24 +65,30 @@ typedef enum thread_state_t{
 } thread_state;
 
 // struct to define thread control block
-typedef struct tcb_t{
+typedef struct TCB {
 	int tid; // thread id
 	thread_state state;
 	int stack_size;
 	char* stack;
 	address_t sp;
 	address_t pc;
+	sigjmp_buf jbuf;
+	struct TCB* next;
 } TCB;
 
-// currently running thread_id
-int tid;
+// count of threads created by system.
+// used to issue tid.
+int thread_count;
 
-// @todo: this is not the right way to store these. ultimately I think sigjmp_buf
-// should probably live in  each tcb, and the control_blocks should be stored as
-// a linked list.
-sigjmp_buf jbuf[MAX_THREADS];
-TCB* control_blocks[MAX_THREADS];
+// scheduling queues
+TCB* ready_queue;
+TCB* suspend_queue;
+
+// currently running thread
 TCB* running_thread;
+
+// our main scheduler thread
+TCB* main_thread;
 
 // test and set atomic lock mechanism
 int TAS(volatile int *addr, int newval){
@@ -95,6 +101,27 @@ int TAS(volatile int *addr, int newval){
 
 }
 
+// adds the tcb to the end of the ready_queue
+void ready_queue_add(TCB* tcb) {
+	// create a TCB pointer and point it at the head
+	// of ready_queue
+	TCB* index = ready_queue;
+
+	tcb->state = Ready;
+
+	// if there are no entries, just make tcb the head
+	if ( index == NULL ) {
+		ready_queue = tcb;
+	} else {
+		// traverse to the end of the list
+		while(index->next != NULL) {
+			index = index->next;
+		}
+		index->next = tcb;
+	}
+}
+
+
 /* * * * * * * * * * * */
 /* pthread equivalents */
 /* * * * * * * * * * * */
@@ -105,7 +132,7 @@ int TAS(volatile int *addr, int newval){
 int uthread_create( void *( *start_routine )( void * ), void *arg ) {
 
 	// allocate the control block structure
-	TCB tcb = (TCB*) malloc(sizeof(TCB));
+	TCB* tcb = (TCB*) malloc(sizeof(TCB));
 	if (tcb == NULL) {
 		printf("uthread_create: Failed to allocate TCB\n");
 		return -1;
@@ -114,12 +141,8 @@ int uthread_create( void *( *start_routine )( void * ), void *arg ) {
 	// start the state at Init
 	tcb->state = Init;
 
-	// assign an id number
-	if (tid >= MAX_THREADS - 1) {
-		free(tcb);
-		printf("uthread_create: Exceeded max number of threads: %d\n", MAX_THREADS);
-	}
-	tcb->tid = tid;
+	// assign thread id
+	tcb->tid = thread_count++;
 
 	// allocate a stack
 	tcb->stack_size = STACK_SIZE;
@@ -135,35 +158,38 @@ int uthread_create( void *( *start_routine )( void * ), void *arg ) {
 	tcb->sp = (address_t)stack + STACK_SIZE -sizeof(int);
 	tcb->pc = (address_t)start_routine;
 
-	// save a pointer to our tcb
-	control_blocks[tcb->tid] = &tcb;
-
-	running_thread = &control_blocks[tcb->tid];
-
 	// store context for jumping
-	// @todo: I'm not sure this belongs in the create function
-    sigsetjmp(jbuf[tcb->tid],1);
-    (jbuf[tcb->tid]->__jmpbuf)[JB_SP] = translate_address(control_blocks[tcb->tid]->sp);
-    (jbuf[tcb->tid]->__jmpbuf)[JB_PC] = translate_address(control_blocks[tcb->tid]->pc);
-    sigemptyset(&jbuf[0]->__saved_mask);
+    sigsetjmp(tcb->jbuf,1);
+    (tcb->jbuf->__jmpbuf)[JB_SP] = translate_address(tcb->sp);
+    (tcb->jbuf->__jmpbuf)[JB_PC] = translate_address(tcb->pc);
+    sigemptyset(&tcb->jbuf->__saved_mask);
 
-	// @todo: add the new_tcb to the thread scheduler queue
-
-    // increment tid after storing context
-    tid++;
+	//add the new_tcb to the thread scheduler queue
+    ready_queue_add(tcb);
 
 	return tcb->tid;
-}       
+}
+
+void uthread_start(int tid) {
+	TCB* index;
+	index = ready_queue;
+
+	while (index->tid != tid && index->next != NULL) {
+		index = index->next;
+	}
+
+	running_thread = index;
+    siglongjmp(index->jbuf,1);
+}
 
 int uthread_yield( void ) {
-	// change state to ready
 	// store context
 	// move thread to waiting queue
     return 0;
 }             
 
 // Returns currently running thread id.
-int uthread_self( void ) {                                                   // returns tid
+int uthread_self( void ) {
     return running_thread->tid;
 }        
 
