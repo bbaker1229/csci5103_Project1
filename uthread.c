@@ -108,7 +108,7 @@ void ready_queue_add(TCB* tcb) {
 	// of ready_queue
 	TCB* index = ready_queue;
 
-	tcb->state = Ready;
+	tcb->state = READY;
 
 	// if there are no entries, just make tcb the head
 	if ( index == NULL ) {
@@ -140,7 +140,7 @@ int uthread_create( void *( *start_routine )( void * ), void *arg ) {
 	}
 
 	// start the state at Init
-	tcb->state = Init;
+	tcb->state = INIT;
 
 	// assign thread id
 	tcb->tid = thread_count++;
