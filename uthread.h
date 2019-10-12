@@ -5,6 +5,8 @@ typedef struct {
     char name[NAME_SIZE];
 } lock_t;
 
+void uthread_setup();
+
 // pthread equivalents
 extern int 
 uthread_create( void *( *start_routine )( void * ), void *arg );         // returns tid

@@ -74,6 +74,7 @@ typedef struct TCB {
 	address_t sp;
 	address_t pc;
 	sigjmp_buf jbuf;
+	int joined_tid;
 	struct TCB* next;
 } TCB;
 
@@ -122,6 +123,31 @@ void ready_queue_add(TCB* tcb) {
 	}
 }
 
+// adds the tcb to the end of the suspend_queue
+void suspend_queue_add(TCB* tcb) {
+	// create a TCB pointer and point it at the head
+	// of ready_queue
+	TCB* index = suspend_queue;
+
+	// if there are no entries, just make tcb the head
+	if ( index == NULL ) {
+		suspend_queue = tcb;
+	} else {
+		// traverse to the end of the list
+		while(index->next != NULL) {
+			index = index->next;
+		}
+		index->next = tcb;
+	}
+}
+
+void uthread_setup()
+{
+	// allocate the control block structure
+	main_thread = (TCB*) malloc(sizeof(TCB));
+
+}
+
 
 /* * * * * * * * * * * */
 /* pthread equivalents */
@@ -129,7 +155,7 @@ void ready_queue_add(TCB* tcb) {
 
 // Allocates a Thread Control Block and stack for the new thread and
 // adds it to the scheduling queue. Returns the id of the new thread.
-// Note: this ignores the second void* arg at this time.
+// @todo: add arguments and return values to TCB
 int uthread_create( void *( *start_routine )( void * ), void *arg ) {
 
 	// allocate the control block structure
@@ -164,6 +190,9 @@ int uthread_create( void *( *start_routine )( void * ), void *arg ) {
     (tcb->jbuf->__jmpbuf)[JB_SP] = translate_address(tcb->sp);
     (tcb->jbuf->__jmpbuf)[JB_PC] = translate_address(tcb->pc);
     sigemptyset(&tcb->jbuf->__saved_mask);
+	
+	// we haven't joined anything yet
+	tcb->joined_tid = -1;
 
 	//add the new_tcb to the thread scheduler queue
     ready_queue_add(tcb);
@@ -180,14 +209,34 @@ void uthread_start(int tid) {
 	}
 
 	running_thread = index;
-    siglongjmp(index->jbuf,1);
+
+	// save our context before jumping!
+    if ( sigsetjmp(main_thread->jbuf,1) == 0 ) {
+    	siglongjmp(index->jbuf,1);
+    }
 }
 
+// Changes running thread state to ready and adds it
+// to the suspend_queue before returning control to the
+// main_thread;
 int uthread_yield( void ) {
 	// store context
 	// move thread to waiting queue
 	// needs to call uthread_init(TIME_SLICE); somewhere to reset the time after the thread yields. 
 	// Also should call suspend and resume. 
+	// change our state
+	running_thread->state = Ready;
+	
+	suspend_queue_add(running_thread);
+	
+	// save our context before jumping!
+    if ( sigsetjmp(running_thread->jbuf,1) == 0 ) {
+		// go to our main scheduler thread, wherever
+		// it left off
+		running_thread = main_thread;
+    	siglongjmp(main_thread->jbuf,1);
+    }
+	
     return 0;
 }             
 
@@ -196,9 +245,31 @@ int uthread_self( void ) {
     return running_thread->tid;
 }        
 
+// Changes running thread state to waiting and adds it
+// to the suspend_queue before returning control to the
+// main_thread;
 int uthread_join( int tid, void **retval ) {
-	//Once threads complete: Free all threads in FINISHED state
-    return 0;
+
+	// change our state
+	running_thread->state = Waiting;
+	
+	// make a note of who we're waiting for
+	running_thread->joined_tid;
+	
+	suspend_queue_add(running_thread);
+	
+    // save our context before jumping!
+    if ( sigsetjmp(running_thread->jbuf,1) == 0 ) {
+		// go to our main scheduler thread, wherever
+		// it left off
+		running_thread = main_thread;
+    	siglongjmp(main_thread->jbuf,1);
+    }
+	
+	// if we ended up here, the joined thread must be finished!
+	// @todo: assign retval to our joined thread's return value?
+	
+	return 0;
 }
 
 /* * * * * * * * * * * */
@@ -221,6 +292,7 @@ int uthread_init( int time_slice ) {
 int uthread_terminate( int tid ) {
 	tcb[tid].state = FINISHED;
 	//The rest should be freed by uthread_join
+	longjmp(main_thread->jbuf, 1);
     return 0;
 }
 
@@ -244,17 +316,24 @@ int uthread_resume( int tid ) {
     return 0;
 }
 
-/* * * * * * * * * * * */
-/* lock functions      */
-/* * * * * * * * * * * */
+typedef struct _lock_t {
+    int flag;
+} lock_t;
+
 int lock_init( lock_t *lock1 ) {
+    // 0: lock is available, 1: lock is held
+    lock->flag=0;
     return 0;
 }
 
 int acquire( lock_t *lock1 ) {
+    while (TAS(&lock1->flag,1)==1){
+        //uthread_suspend(); // yield when lock is not available. Need to know how to pass current thread tid to this call
+    }    
     return 0;
 }
 
 int release( lock_t *lock1 ) {
+    lock1->flag=0;
     return 0;
 }

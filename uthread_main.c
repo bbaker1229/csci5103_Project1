@@ -23,6 +23,7 @@ void* single_thread_example()
 
 int main(int argc, const char* argv[])
 {
+	uthread_setup();
     int tid = uthread_create(single_thread_example, NULL);
     uthread_start(tid);
     return 0;
