@@ -228,10 +228,8 @@ int uthread_suspend( int tid ) {
 	if(tcb[tid].state == RUNNING) {
 		tcb[tid].state == SUSPEND;
 		//move to suspend queue...
-	} else if(tcb[tid].state == READY) {
-		tcb[tid].state == SUSPEND;
-		//move to suspend queue...
-	}
+		//pull a new thread off the ready queue and start.
+	} 
     return 0;
 }
 
