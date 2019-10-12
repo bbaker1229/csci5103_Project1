@@ -286,17 +286,24 @@ int uthread_resume( int tid ) {
     return 0;
 }
 
-/* * * * * * * * * * * */
-/* lock functions      */
-/* * * * * * * * * * * */
+typedef struct _lock_t {
+    int flag;
+} lock_t;
+
 int lock_init( lock_t *lock1 ) {
+    // 0: lock is available, 1: lock is held
+    lock->flag=0;
     return 0;
 }
 
 int acquire( lock_t *lock1 ) {
+    while (TAS(&lock1->flag,1)==1){
+        //uthread_suspend(); // yield when lock is not available. Need to know how to pass current thread tid to this call
+    }    
     return 0;
 }
 
 int release( lock_t *lock1 ) {
+    lock1->flag=0;
     return 0;
 }
