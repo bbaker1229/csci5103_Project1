@@ -1,4 +1,4 @@
-
+#define _XOPEN_SOURCE
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
@@ -10,6 +10,7 @@
 #include "uthread.h"
 
 #define SECOND 			1000000 	// time in microseconds
+#define TIME_SLICE		2500000
 #define STACK_SIZE 		4096	// size in bytes
 
 #ifdef __x86_64__
@@ -56,18 +57,18 @@ address_t translate_address(address_t addr)
 #endif
 
 // enum for thread states
-typedef enum thread_state_t{
-	Init = 0,
-	Ready = 1,
-	Running = 2,
-	Waiting = 3,
-	Finished = 4,
-} thread_state;
+typedef enum {
+	INIT,
+	READY,
+	RUNNING,
+	SUSPEND,
+	FINISHED
+} thread_state_t;
 
 // struct to define thread control block
 typedef struct TCB {
 	int tid; // thread id
-	thread_state state;
+	thread_state_t state;
 	int stack_size;
 	char* stack;
 	address_t sp;
@@ -108,7 +109,7 @@ void ready_queue_add(TCB* tcb) {
 	// of ready_queue
 	TCB* index = ready_queue;
 
-	tcb->state = Ready;
+	tcb->state = READY;
 
 	// if there are no entries, just make tcb the head
 	if ( index == NULL ) {
@@ -165,7 +166,7 @@ int uthread_create( void *( *start_routine )( void * ), void *arg ) {
 	}
 
 	// start the state at Init
-	tcb->state = Init;
+	tcb->state = INIT;
 
 	// assign thread id
 	tcb->tid = thread_count++;
@@ -219,6 +220,10 @@ void uthread_start(int tid) {
 // to the suspend_queue before returning control to the
 // main_thread;
 int uthread_yield( void ) {
+	// store context
+	// move thread to waiting queue
+	// needs to call uthread_init(TIME_SLICE); somewhere to reset the time after the thread yields. 
+	// Also should call suspend and resume. 
 	// change our state
 	running_thread->state = Ready;
 	
@@ -244,6 +249,7 @@ int uthread_self( void ) {
 // to the suspend_queue before returning control to the
 // main_thread;
 int uthread_join( int tid, void **retval ) {
+
 	// change our state
 	running_thread->state = Waiting;
 	
@@ -270,19 +276,43 @@ int uthread_join( int tid, void **retval ) {
 /* uthread control     */
 /* * * * * * * * * * * */
 int uthread_init( int time_slice ) {
+	struct itimerval timer;
+	struct sigaction yield; //Not sure how to implement the timer.
+
+	memset (&yield, 0, sizeof (yield));
+ 	yield.sa_handler = &uthread_yield;
+ 	sigaction (SIGVTALRM, &yield, NULL);
+
+	timer.it_value.tv_sec = time_slice / SECOND;
+ 	timer.it_value.tv_usec = time_slice % SECOND;
+	setitimer (ITIMER_VIRTUAL, &timer, NULL);
     return 0;
 }
 
 int uthread_terminate( int tid ) {
+	tcb[tid].state = FINISHED;
+	//The rest should be freed by uthread_join
 	longjmp(main_thread->jbuf, 1);
     return 0;
 }
 
 int uthread_suspend( int tid ) {
+	if(tcb[tid].state == RUNNING) {
+		tcb[tid].state == SUSPEND;
+		//move to suspend queue...
+		//pull a new thread off the ready queue and start.
+	} 
     return 0;
 }
 
 int uthread_resume( int tid ) {
+	if(tcb[tid].state == SUSPEND) {
+		tcb[tid].state == RUNNING;
+		//remove from suspend queue...
+	} else if(tcb[tid].state == READY) {
+		tcb[tid].state == RUNNING;
+		//remove from ready queue...
+	}
     return 0;
 }
 
