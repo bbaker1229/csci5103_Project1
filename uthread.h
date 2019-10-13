@@ -1,8 +1,8 @@
 #define _XOPEN_SOURCE
 #define NAME_SIZE   10
 
-typedef struct {
-    char name[NAME_SIZE];
+typedef struct _lock_t {
+    int flag;
 } lock_t;
 
 void uthread_setup();
