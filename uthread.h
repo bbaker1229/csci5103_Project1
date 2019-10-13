@@ -5,7 +5,7 @@ typedef struct _lock_t {
     int flag;
 } lock_t;
 
-void uthread_setup();
+int uthread_setup();
 
 // pthread equivalents
 extern int 

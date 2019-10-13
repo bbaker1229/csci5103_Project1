@@ -1,4 +1,11 @@
+/* 
+	Definition of uthread functions.
+*/
+
+// define xOPEN_SOUCE for timer to work
 #define _XOPEN_SOURCE
+
+// include header files
 #include <stdio.h>
 #include <stdlib.h>
 #include <setjmp.h>
@@ -7,13 +14,16 @@
 #include <unistd.h>
 #include <sys/time.h>
 
+// Include header file for this file.
 #include "uthread.h"
 
+// Define constants
 #define SECOND 			1000000 	// time in microseconds
-#define TIME_SLICE		2500000
-#define STACK_SIZE 		4096	// size in bytes
-#define QUEUE_SIZE		100
+#define TIME_SLICE		2500000		// used for timeslice.  We can change this.
+#define STACK_SIZE 		4096		// size in bytes
+#define QUEUE_SIZE		100			// Queue size which will be used as the maximum num of threads to create.
 
+// The following is code for 64 or 32 bit processing.  No need to change.
 #ifdef __x86_64__
 
 
@@ -78,12 +88,19 @@ typedef struct TCB {
 	int joined_tid;
 } TCB;
 
+// Define struture of queues
 typedef struct {
 	int start;
 	int end;
 	int count;
 	TCB* tcb_queue[QUEUE_SIZE];
 } tcb_fifo_t;
+
+// Define required locks
+lock_t suspend_lock;
+lock_init(suspend_lock);
+lock_t resume_lock;
+lock_init(resume_lock);
 
 // count of threads created by system.
 // used to issue tid.
@@ -92,6 +109,12 @@ int thread_count;
 // scheduling queues
 tcb_fifo_t ready_queue;
 tcb_fifo_t suspend_queue;
+tcb_fifo_t finished_queue;
+
+// If we are going to refer to threads by tid can we create an array of TCBs?
+TCB* threads[QUEUE_SIZE];
+// Then we can ensure that all queues will be the correct size to hold all the threads and we can
+// pass around tid values rather than TCB pointers?
 
 // currently running thread
 TCB* running_thread;
@@ -99,7 +122,7 @@ TCB* running_thread;
 // our main scheduler thread
 TCB* main_thread;
 
-// test and set atomic lock mechanism
+// test and set atomic lock mechanism - Probably do not have to change this.
 int TAS(volatile int *addr, int newval){
     int result = newval;
     asm volatile("lock; xchg %0, %1"
@@ -107,7 +130,6 @@ int TAS(volatile int *addr, int newval){
                  : "1" (newval)
                  : "cc");
     return result;
-
 }
 
 // adds the tcb to the end of the queue
@@ -153,7 +175,7 @@ TCB* queue_remove(tcb_fifo_t* queue) {
 	return tcb;
 }
 
-
+// Create the details for the scheduler.
 void scheduler()
 {
 	int i;
@@ -191,6 +213,7 @@ void scheduler()
 
 }
 
+// Create the main thread
 int uthread_setup() {
 	// allocate the control block structure
 	main_thread = (TCB*) malloc(sizeof(TCB));
@@ -223,6 +246,8 @@ int uthread_setup() {
     sigemptyset(&main_thread->jbuf->__saved_mask);
 
     siglongjmp(main_thread->jbuf,1);
+
+	return 0;
 }
 
 
@@ -341,29 +366,41 @@ int uthread_init( int time_slice ) {
 }
 
 int uthread_terminate( int tid ) {
-	tcb[tid].state = FINISHED;
+	threads[tid]->state = FINISHED;
 	//The rest should be freed by uthread_join
 	longjmp(main_thread->jbuf, 1);
     return 0;
 }
 
 int uthread_suspend( int tid ) {
-	if(tcb[tid].state == RUNNING) {
-		tcb[tid].state == SUSPEND;
+	TCB* next;
+	aquire(&suspend_lock);
+	if(threads[tid]->state == RUNNING) {
+		threads[tid]->state == SUSPEND;
 		//move to suspend queue...
+		queue_add(threads[tid], &suspend_queue);
 		//pull a new thread off the ready queue and start.
+		next = queue_remove(&ready_queue);
+		running_thread = next;
+		running_thread->state = RUNNING;
 	} 
+	release(&suspend_lock);
     return 0;
 }
 
 int uthread_resume( int tid ) {
-	if(tcb[tid].state == SUSPEND) {
-		tcb[tid].state == RUNNING;
-		//remove from suspend queue...
-	} else if(tcb[tid].state == READY) {
-		tcb[tid].state == RUNNING;
-		//remove from ready queue...
+	TCB* next;
+	acquire(&resume_lock);
+	if(threads[tid]->state == SUSPEND) {
+		threads[tid]->state == RUNNING;
+		next = queue_remove(&suspend_queue);
+		running_thread = next;
+	} else if(threads[tid]->state == READY) {
+		threads[tid]->state == RUNNING;
+		next = queue_remove(&ready_queue);
+		running_thread = next;
 	}
+	release(&resume_lock);
     return 0;
 }
 
