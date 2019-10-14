@@ -388,7 +388,9 @@ int uthread_self( void ) {
 // to the suspend_queue before returning control to the
 // main_thread;
 int uthread_yield( void ) {
-	// @todo: needs to call uthread_init(TIME_SLICE); somewhere to reset the time after the thread yields.
+	// @todo: needs to call uthread_init(TIME_SLICE); somewhere to reset the time after the thread yields. 
+	//- I don't think we need to now.  signal handler set to this function.  Timer will continually loop.
+	// Do we need a lock here?
 
 	// add running thread to the end of the ready queue
 	queue_add(running_thread, &ready_queue);
@@ -407,6 +409,7 @@ int uthread_yield( void ) {
 // to the suspend_queue before returning control to the
 // main_thread;
 int uthread_join( int tid, void **retval ) {
+	// Do we need to acquire a lock before we add to the queue?
 	// make a note of who we're waiting for
 	running_thread->joined_tid = tid;
 	
@@ -430,14 +433,16 @@ int uthread_join( int tid, void **retval ) {
 /* * * * * * * * * * * */
 int uthread_init( int time_slice ) {
 	struct itimerval timer;
-	struct sigaction yield; //Not sure how to implement the timer.
+	struct sigaction sa;
 
-	memset (&yield, 0, sizeof (yield));
- 	yield.sa_handler = scheduler;
- 	sigaction (SIGVTALRM, &yield, NULL);
+	memset (&sa, 0, sizeof (sa));
+ 	sa.sa_handler = &uthread_yield;
+ 	sigaction (SIGVTALRM, &sa, NULL);
 
 	timer.it_value.tv_sec = time_slice / SECOND;
  	timer.it_value.tv_usec = time_slice % SECOND;
+	timer.it_interval.tv_sec = time_slice / SECOND;
+	timer.it_interval.tv_usec = time_slice % SECOND;
 	setitimer (ITIMER_VIRTUAL, &timer, NULL);
     return 0;
 }
