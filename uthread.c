@@ -13,6 +13,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <stdbool.h>
 
 // Include header file for this file.
 #include "uthread.h"
@@ -98,9 +99,8 @@ typedef struct {
 
 // Define required locks
 lock_t suspend_lock;
-lock_init(suspend_lock);
 lock_t resume_lock;
-lock_init(resume_lock);
+
 
 // count of threads created by system.
 // used to issue tid.
@@ -147,6 +147,8 @@ int queue_add(TCB* tcb, tcb_fifo_t* queue) {
 		tcb->state = READY;
 	} else if ( queue == &suspend_queue ) {
 		tcb->state = SUSPEND;
+	} else if ( queue == &finished_queue) {
+		tcb->state = FINISHED;
 	}
 
 	// store the tcb pointer and increment our queue counts
@@ -175,46 +177,121 @@ TCB* queue_remove(tcb_fifo_t* queue) {
 	return tcb;
 }
 
+// Returns whether a thread with TID is present in the queue.
+bool is_tid_in_queue(int tid, tcb_fifo_t* queue) {
+	int i;
+
+	// go through all the entries in the queue and if one matches the tid,
+	// return true. otherwise return false.
+	for (i = 0; i < queue->count; i++) {
+		if (queue->tcb_queue[(queue->start + i) % QUEUE_SIZE]->tid == tid) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+// Moves the given tid to the front of the queue.
+void move_tid_to_front(int tid, tcb_fifo_t* queue) {
+	int i;
+
+	// move the front of the queue to the back until the TCB at the
+	// start of the queue has the correct TID
+	while (queue->tcb_queue[queue->start]->tid != tid ) {
+		queue_add(queue_remove(queue), queue);
+
+		i++;
+		// double check we're not just going around in circles
+		if (i >= queue->count) {
+			printf("TID not found in queue!\n");
+			break;
+		}
+	}
+}
+
+// Returns a pointer to the TCB if one exists with the given TID.
+// Returns NULL if one can't be found. Note: this function
+// will remove the TCB* from where it is found, assuming you want
+// to move or delete it anyway.
+TCB* find_tcb_by_tid(int tid) {
+	// first check the running thread
+	if (running_thread->tid == tid) {
+		running_thread = NULL;
+		return running_thread;
+	}
+
+	// next check ready queue
+	else if (is_tid_in_queue(tid, &ready_queue)) {
+		move_tid_to_front(tid, &ready_queue);
+		return queue_remove(&ready_queue);
+	}
+
+	// it better be in the suspend queue then...
+	else if (is_tid_in_queue(tid, &suspend_queue)) {
+		move_tid_to_front(tid, &suspend_queue);
+		return queue_remove(&suspend_queue);
+	}
+
+	// guess we don't have that thread in our system
+	return NULL;
+}
+
 // Create the details for the scheduler.
 void scheduler()
 {
 	int i;
 	TCB* next;
+	TCB* finished;
 
-		// first things first, let's sort through our suspend queue and
-		// see what house keeping we need to do
-		for (i = 0; i < suspend_queue.count; i++) {
-			// if the thread in the suspend_queue doesn't need to wait anymore, then move it to
-			// the ready queue
-			//@todo: any other conditions we need to check? why else is a thread suspended?
-			if (suspend_queue.tcb_queue[(suspend_queue.start + i) % QUEUE_SIZE]->joined_tid == -1) {
+	// first things first, let's sort through our suspend queue and
+	// see what house keeping we need to do
+	for (i = 0; i < suspend_queue.count; i++) {
+		// if the thread in the suspend_queue doesn't need to wait anymore, then move it to
+		// the ready queue
+		if (suspend_queue.tcb_queue[(suspend_queue.start + i) % QUEUE_SIZE]->joined_tid != -1) {
+			if (is_tid_in_queue(suspend_queue.tcb_queue[(suspend_queue.start + i) % QUEUE_SIZE]->joined_tid, &finished_queue)) {
+				move_tid_to_front(suspend_queue.tcb_queue[(suspend_queue.start + i) % QUEUE_SIZE]->tid, &suspend_queue);
 				queue_add(queue_remove(&suspend_queue), &ready_queue);
 			}
 		}
+	}
 
-		// try to give someone else a chance to run
-		if (ready_queue.count > 0 ) {
-			next = queue_remove(&ready_queue);
-			queue_add(running_thread, &ready_queue);
-		// otherwise, see if we were already running someone
-		} else if (running_thread != NULL) {
-			next = running_thread;
-		// hmm, there doesn't seem to be anyone we can run.
-		} else {
-			// returning from the scheduler likely means we're leaving the library and headed
-			// back to the calling code
-			return;
-		}
+	// free everything in the finished queue
+	while (finished_queue.count > 0) {
+		finished = queue_remove(&finished_queue);
+		free(finished->stack);
+		free(finished);
+	}
 
-		// context switch to the new running thread
-		next->state = RUNNING;
-		running_thread = next;
-		siglongjmp(running_thread->jbuf,1);
+	// try to give someone else a chance to run
+	if (ready_queue.count > 0 ) {
+		next = queue_remove(&ready_queue);
+		queue_add(running_thread, &ready_queue);
+	// otherwise, see if we were already running someone
+	} else if (running_thread != NULL) {
+		next = running_thread;
+	// hmm, there doesn't seem to be anyone we can run.
+	} else {
+		// returning from the scheduler likely means we're leaving the library and headed
+		// back to the calling code
+		return;
+	}
+
+	// context switch to the new running thread
+	next->state = RUNNING;
+	running_thread = next;
+	siglongjmp(running_thread->jbuf,1);
 
 }
 
 // Create the main thread
 int uthread_setup() {
+
+	// initialize locks
+	lock_init(&resume_lock);
+	lock_init(&suspend_lock);
+
 	// allocate the control block structure
 	main_thread = (TCB*) malloc(sizeof(TCB));
 
@@ -356,7 +433,7 @@ int uthread_init( int time_slice ) {
 	struct sigaction yield; //Not sure how to implement the timer.
 
 	memset (&yield, 0, sizeof (yield));
- 	yield.sa_handler = &uthread_yield;
+ 	yield.sa_handler = scheduler;
  	sigaction (SIGVTALRM, &yield, NULL);
 
 	timer.it_value.tv_sec = time_slice / SECOND;
@@ -366,15 +443,22 @@ int uthread_init( int time_slice ) {
 }
 
 int uthread_terminate( int tid ) {
-	threads[tid]->state = FINISHED;
-	//The rest should be freed by uthread_join
+	// find where this thing is
+	TCB* thread = find_tcb_by_tid(tid);
+
+	// if we actually found something, add it to the finished_queue
+	if ( thread != NULL ) {
+		queue_add(thread, &finished_queue);
+	}
+
+	// head back to the main thread
 	longjmp(main_thread->jbuf, 1);
     return 0;
 }
 
 int uthread_suspend( int tid ) {
 	TCB* next;
-	aquire(&suspend_lock);
+	acquire(&suspend_lock);
 	if(threads[tid]->state == RUNNING) {
 		threads[tid]->state == SUSPEND;
 		//move to suspend queue...
