@@ -20,7 +20,7 @@
 
 // Define constants
 #define SECOND 			1000000 	// time in microseconds
-#define TIME_SLICE		2500000		// used for timeslice.  We can change this.
+#define TIME_SLICE		250			// used for timeslice.  We can change this.
 #define STACK_SIZE 		4096		// size in bytes
 #define QUEUE_SIZE		100			// Queue size which will be used as the maximum num of threads to create.
 
@@ -95,12 +95,8 @@ typedef struct {
 	int end;
 	int count;
 	TCB* tcb_queue[QUEUE_SIZE];
+	lock_t lock;
 } tcb_fifo_t;
-
-// Define required locks
-lock_t suspend_lock;
-lock_t resume_lock;
-
 
 // count of threads created by system.
 // used to issue tid.
@@ -136,9 +132,12 @@ int TAS(volatile int *addr, int newval){
 // returns -1 on fail, 0 on success
 int queue_add(TCB* tcb, tcb_fifo_t* queue) {
 
+	acquire(&queue->lock);
+
 	// make sure we have space for the new tcb
 	if (queue->count >= QUEUE_SIZE) {
 		printf("queue_add: could not add new tcb. queue already at capacity\n");
+		release(&queue->lock);
 		return -1;
 	}
 
@@ -156,6 +155,7 @@ int queue_add(TCB* tcb, tcb_fifo_t* queue) {
 	queue->count++;
 	queue->end = (queue->end + 1) % QUEUE_SIZE;
 
+	release(&queue->lock);
 	return 0;
 }
 
@@ -163,9 +163,11 @@ int queue_add(TCB* tcb, tcb_fifo_t* queue) {
 // or NULL if queue is empty
 TCB* queue_remove(tcb_fifo_t* queue) {
 	TCB* tcb;
+	acquire(&queue->lock);
 
 	// make sure we have something to get
 	if (queue->count == 0) {
+		release(&queue->lock);
 		return NULL;
 	}
 
@@ -174,27 +176,32 @@ TCB* queue_remove(tcb_fifo_t* queue) {
 	queue->count--;
 	queue->start = (queue->start + 1) % QUEUE_SIZE;
 
+	release(&queue->lock);
 	return tcb;
 }
 
 // Returns whether a thread with TID is present in the queue.
 bool is_tid_in_queue(int tid, tcb_fifo_t* queue) {
 	int i;
+	acquire(&queue->lock);
 
 	// go through all the entries in the queue and if one matches the tid,
 	// return true. otherwise return false.
 	for (i = 0; i < queue->count; i++) {
 		if (queue->tcb_queue[(queue->start + i) % QUEUE_SIZE]->tid == tid) {
+			release(&queue->lock);
 			return true;
 		}
 	}
 
+	release(&queue->lock);
 	return false;
 }
 
 // Moves the given tid to the front of the queue.
 void move_tid_to_front(int tid, tcb_fifo_t* queue) {
 	int i;
+	acquire(&queue->lock);
 
 	// move the front of the queue to the back until the TCB at the
 	// start of the queue has the correct TID
@@ -208,6 +215,7 @@ void move_tid_to_front(int tid, tcb_fifo_t* queue) {
 			break;
 		}
 	}
+	release(&queue->lock);
 }
 
 // Returns a pointer to the TCB if one exists with the given TID.
@@ -215,10 +223,13 @@ void move_tid_to_front(int tid, tcb_fifo_t* queue) {
 // will remove the TCB* from where it is found, assuming you want
 // to move or delete it anyway.
 TCB* find_tcb_by_tid(int tid) {
+	TCB* temp;
+
 	// first check the running thread
 	if (running_thread->tid == tid) {
+		temp = running_thread;
 		running_thread = NULL;
-		return running_thread;
+		return temp;
 	}
 
 	// next check ready queue
@@ -240,20 +251,21 @@ TCB* find_tcb_by_tid(int tid) {
 // Create the details for the scheduler.
 void scheduler()
 {
-	int i;
 	TCB* next;
 	TCB* finished;
 
-	// first things first, let's sort through our suspend queue and
-	// see what house keeping we need to do
-	for (i = 0; i < suspend_queue.count; i++) {
-		// if the thread in the suspend_queue doesn't need to wait anymore, then move it to
-		// the ready queue
-		if (suspend_queue.tcb_queue[(suspend_queue.start + i) % QUEUE_SIZE]->joined_tid != -1) {
-			if (is_tid_in_queue(suspend_queue.tcb_queue[(suspend_queue.start + i) % QUEUE_SIZE]->joined_tid, &finished_queue)) {
-				move_tid_to_front(suspend_queue.tcb_queue[(suspend_queue.start + i) % QUEUE_SIZE]->tid, &suspend_queue);
-				queue_add(queue_remove(&suspend_queue), &ready_queue);
-			}
+	// quick store our context
+	if (running_thread != NULL) {
+		if (sigsetjmp(running_thread->jbuf, 1) == 1) {
+			return;
+		}
+	}
+
+	// check if main is waiting for a thread to finish
+	if (main_thread->joined_tid != -1) {
+		if (is_tid_in_queue(main_thread->joined_tid, &finished_queue)) {
+			main_thread->joined_tid = -1;
+			siglongjmp(main_thread->jbuf,1);
 		}
 	}
 
@@ -267,20 +279,22 @@ void scheduler()
 	// try to give someone else a chance to run
 	if (ready_queue.count > 0 ) {
 		next = queue_remove(&ready_queue);
-		queue_add(running_thread, &ready_queue);
+		if (running_thread != NULL) {
+			queue_add(running_thread, &ready_queue);
+		}
 	// otherwise, see if we were already running someone
 	} else if (running_thread != NULL) {
 		next = running_thread;
 	// hmm, there doesn't seem to be anyone we can run.
 	} else {
-		// returning from the scheduler likely means we're leaving the library and headed
-		// back to the calling code
-		return;
+		// let's kick back to main then
+		siglongjmp(main_thread->jbuf,1);
 	}
 
 	// context switch to the new running thread
 	next->state = RUNNING;
 	running_thread = next;
+	uthread_init(TIME_SLICE);
 	siglongjmp(running_thread->jbuf,1);
 
 }
@@ -289,8 +303,9 @@ void scheduler()
 int uthread_setup() {
 
 	// initialize locks
-	lock_init(&resume_lock);
-	lock_init(&suspend_lock);
+	lock_init(&ready_queue.lock);
+	lock_init(&suspend_queue.lock);
+	lock_init(&finished_queue.lock);
 
 	// allocate the control block structure
 	main_thread = (TCB*) malloc(sizeof(TCB));
@@ -314,15 +329,11 @@ int uthread_setup() {
 
 	// point the stack pointer and program counter at the right things
 	main_thread->sp = (address_t)stack + STACK_SIZE -sizeof(int);
-	main_thread->pc = (address_t)scheduler;
 
 	// store context for jumping
     sigsetjmp(main_thread->jbuf,1);
     (main_thread->jbuf->__jmpbuf)[JB_SP] = translate_address(main_thread->sp);
-    (main_thread->jbuf->__jmpbuf)[JB_PC] = translate_address(main_thread->pc);
     sigemptyset(&main_thread->jbuf->__saved_mask);
-
-    siglongjmp(main_thread->jbuf,1);
 
 	return 0;
 }
@@ -334,7 +345,6 @@ int uthread_setup() {
 
 // Allocates a Thread Control Block and stack for the new thread and
 // adds it to the scheduling queue. Returns the id of the new thread.
-// @todo: add arguments and return values to TCB
 int uthread_create( void *( *start_routine )( void * ), void *arg ) {
 
 	// allocate the control block structure
@@ -388,43 +398,32 @@ int uthread_self( void ) {
 // to the suspend_queue before returning control to the
 // main_thread;
 int uthread_yield( void ) {
-	// @todo: needs to call uthread_init(TIME_SLICE); somewhere to reset the time after the thread yields. 
-	//- I don't think we need to now.  signal handler set to this function.  Timer will continually loop.
-	// Do we need a lock here?
-
 	// add running thread to the end of the ready queue
 	queue_add(running_thread, &ready_queue);
 	
 	// save our context before jumping!
     if ( sigsetjmp(running_thread->jbuf,1) == 0 ) {
-		// go to our main scheduler thread, wherever
-		// it left off
-    	siglongjmp(main_thread->jbuf,1);
+		// go to our scheduler
+    	scheduler();
     }
 	
     return 0;
 }
 
-// Changes running thread state to waiting and adds it
+// Changes main thread state to waiting and adds it
 // to the suspend_queue before returning control to the
 // main_thread;
 int uthread_join( int tid, void **retval ) {
-	// Do we need to acquire a lock before we add to the queue?
 	// make a note of who we're waiting for
-	running_thread->joined_tid = tid;
-	
-	queue_add(running_thread, &suspend_queue);
+	main_thread->joined_tid = tid;
 	
     // save our context before jumping!
-    if ( sigsetjmp(running_thread->jbuf,1) == 0 ) {
-		// go to our main scheduler thread, wherever
-		// it left off
-    	siglongjmp(main_thread->jbuf,1);
+    if ( sigsetjmp(main_thread->jbuf,1) == 0 ) {
+		// go to our scheduler
+    	scheduler();
     }
 	
 	// if we ended up here, the joined thread must be finished!
-	// @todo: assign retval to our joined thread's return value?
-	
 	return 0;
 }
 
@@ -436,7 +435,7 @@ int uthread_init( int time_slice ) {
 	struct sigaction sa;
 
 	memset (&sa, 0, sizeof (sa));
- 	sa.sa_handler = &uthread_yield;
+ 	sa.sa_handler = &scheduler;
  	sigaction (SIGVTALRM, &sa, NULL);
 
 	timer.it_value.tv_sec = time_slice / SECOND;
@@ -456,40 +455,34 @@ int uthread_terminate( int tid ) {
 		queue_add(thread, &finished_queue);
 	}
 
-	// head back to the main thread
-	longjmp(main_thread->jbuf, 1);
+	scheduler();
     return 0;
 }
 
 int uthread_suspend( int tid ) {
-	TCB* next;
-	acquire(&suspend_lock);
-	if(threads[tid]->state == RUNNING) {
-		threads[tid]->state == SUSPEND;
-		//move to suspend queue...
-		queue_add(threads[tid], &suspend_queue);
-		//pull a new thread off the ready queue and start.
+	TCB* next = NULL;
+
+	if (running_thread->tid == tid) {
+		next = running_thread;
+		running_thread = NULL;
+	}
+	else if (is_tid_in_queue(tid, &ready_queue)) {
+		move_tid_to_front(tid, &ready_queue);
 		next = queue_remove(&ready_queue);
-		running_thread = next;
-		running_thread->state = RUNNING;
-	} 
-	release(&suspend_lock);
+	}
+
+	if (next != NULL) {
+		queue_add(next, &suspend_queue);
+	}
+	scheduler();
     return 0;
 }
 
 int uthread_resume( int tid ) {
-	TCB* next;
-	acquire(&resume_lock);
-	if(threads[tid]->state == SUSPEND) {
-		threads[tid]->state == RUNNING;
-		next = queue_remove(&suspend_queue);
-		running_thread = next;
-	} else if(threads[tid]->state == READY) {
-		threads[tid]->state == RUNNING;
-		next = queue_remove(&ready_queue);
-		running_thread = next;
+	if (is_tid_in_queue(tid, &suspend_queue)) {
+		move_tid_to_front(tid, &suspend_queue);
+		queue_add(queue_remove(&suspend_queue), &ready_queue);
 	}
-	release(&resume_lock);
     return 0;
 }
 

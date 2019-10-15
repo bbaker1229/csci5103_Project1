@@ -1,28 +1,31 @@
 #include <stdio.h>
 #include "uthread.h"
 
-static void go(int n);
+static void* go(void*);
 
 #define NTHREADS 10
-//static thread_t threads[NTHREADS];
+
+static int threads[NTHREADS];
 
 int main (void) {
     int i;
-    long exitValue;
-    long *returnValue;
+
+    uthread_setup();
 
     for (i = 0; i < NTHREADS; i++){
-        uthread_create(&go, NULL);
+        threads[i] = uthread_create(&go, NULL);
     }
     for (i = 0; i < NTHREADS; i++){
-        exitValue = uthread_join(i, returnValue);
-        printf("Thread %d returned with %ld\n", i, exitValue);
+        uthread_join(threads[i], NULL);
+        printf("Thread %d returned\n", threads[i]);
     }
     printf("Main thread done.\n");
     return 0;
 }
 
-void go(int n) {
-    printf("Hello form thread %d\n", n);
+void* go(void* nothing) {
+	int i;
+    printf("Hello from thread %d\n", uthread_self());
     uthread_terminate(uthread_self());
+    return NULL;
 }
