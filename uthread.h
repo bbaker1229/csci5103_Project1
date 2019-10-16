@@ -1,7 +1,3 @@
-#ifdef __cplusplus
-extern "C" {
-#endif
-
 #define _XOPEN_SOURCE
 #define NAME_SIZE   10
 
@@ -48,7 +44,3 @@ acquire( lock_t *lock1 );
 
 extern int 
 release( lock_t *lock1 );
-
-#ifdef __cplusplus
-}
-#endif
