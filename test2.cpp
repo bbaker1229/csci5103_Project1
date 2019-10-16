@@ -1,4 +1,6 @@
-#include "uthread.h"
+extern "C" {
+	#include "uthread.h"
+}
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>

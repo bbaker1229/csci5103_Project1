@@ -17,7 +17,7 @@ tags:
 	etags *.h *.c *.cpp
 
 %.o: %.cpp
-	$(CC) -c $(CFLAGS) $< -o $@
+	g++ -c $(CFLAGS) $< -o $@
 
 %.o: %.c
 	$(CC) -c $(CFLAGS) $< -o $@
@@ -32,7 +32,7 @@ uthread_demo: uthread_demo.c
 	$(CC) $(CFLAGS) $^ -o $@ 
 
 test1: test1.cpp $(OBJ) $(LIB)
-	$(CC) $(CFLAGS) $^ -o $@
+	g++ $(CFLAGS) $^ -o $@
 
 test2: test2.cpp $(OBJ) $(LIB)
-	$(CC) $(CFLAGS) $^ -o $@
+	g++ $(CFLAGS) $^ -o $@
