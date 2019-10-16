@@ -24,7 +24,6 @@ int main (void) {
 }
 
 void* go(void* nothing) {
-	int i;
     printf("Hello from thread %d\n", uthread_self());
     uthread_terminate(uthread_self());
     return NULL;

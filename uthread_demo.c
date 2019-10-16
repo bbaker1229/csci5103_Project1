@@ -4,6 +4,7 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/time.h>
+#include <stdlib.h>
 
 #define SECOND 1000000
 #define STACK_SIZE 4096
