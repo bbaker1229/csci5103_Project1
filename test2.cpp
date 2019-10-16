@@ -23,6 +23,8 @@ void* worker(void* arg) {
     }
 
 	uthread_terminate(my_tid);
+	
+	return NULL;
 }
 
 int main(int argc, char *argv[]) {
@@ -33,11 +35,13 @@ int main(int argc, char *argv[]) {
         quantum_usecs = atoi(argv[2]);
     }
 
-	int i, j, ret;
+	int i, ret;
 	//unsigned long totalpoints = atol(argv[1]);
 	int thread_count = atoi(argv[1]);
 	int *threads = new int[thread_count];
 	//points_per_thread = totalpoints / thread_count;
+
+	uthread_setup();
 
 	ret = uthread_init(quantum_usecs);
 	if (ret != 0) {
