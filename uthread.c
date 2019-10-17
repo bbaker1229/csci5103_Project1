@@ -470,11 +470,13 @@ int uthread_terminate( int tid ) {
 int uthread_suspend( int tid ) {
 	TCB* next = NULL;
 
-	if (running_thread->tid == tid) {
-		next = running_thread;
-		running_thread = NULL;
-	}
-	else if (is_tid_in_queue(tid, &ready_queue)) {
+	// if (running_thread->tid == tid) {
+	// 	next = running_thread;
+	// 	running_thread = NULL;
+	// }
+	// else 
+	
+	if (is_tid_in_queue(tid, &ready_queue)) {
 		move_tid_to_front(tid, &ready_queue);
 		next = queue_remove(&ready_queue);
 	}
@@ -482,7 +484,7 @@ int uthread_suspend( int tid ) {
 	if (next != NULL) {
 		queue_add(next, &suspend_queue);
 	}
-	scheduler();
+	//scheduler();
     return 0;
 }
 

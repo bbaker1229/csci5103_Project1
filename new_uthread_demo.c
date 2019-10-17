@@ -9,12 +9,13 @@ static void* go(void*);
 static int threads[NTHREADS];
 
 void* go(void* nothing) {
-    int i = 0;
+    int i, j = 0;
     while(1) {
         ++i;
         printf("in thread %i (%d)\n",uthread_self(),i);
-        while(1);
+        for (j = 0; j < 10000000; j++);
     }
+    uthread_terminate(uthread_self());
     return 0;
 }
 
@@ -25,7 +26,7 @@ int main (void) {
     
     //uthread_setup();
 
-    uthread_init(2500000);
+    uthread_init(25000);
 
     for (i = 0; i < NTHREADS; i++) {
         threads[i] = uthread_create(&go, NULL);

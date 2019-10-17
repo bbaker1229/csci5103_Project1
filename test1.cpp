@@ -41,8 +41,6 @@ int main(int argc, char *argv[]) {
 	int *threads = new int[thread_count];
 	points_per_thread = totalpoints / thread_count;
 
-	uthread_setup();
-
 	ret = uthread_init(quantum_usecs);
 	if (ret != 0) {
 		fprintf(stderr, "uthread_init FAIL!\n");
