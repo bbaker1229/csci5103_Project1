@@ -198,8 +198,7 @@ bool is_tid_in_queue(int tid, tcb_fifo_t* queue) {
 
 // Moves the given tid to the front of the queue.
 void move_tid_to_front(int tid, tcb_fifo_t* queue) {
-	int i;
-	acquire(&queue->lock);
+	int i = 0;
 
 	// move the front of the queue to the back until the TCB at the
 	// start of the queue has the correct TID
@@ -213,7 +212,6 @@ void move_tid_to_front(int tid, tcb_fifo_t* queue) {
 			break;
 		}
 	}
-	release(&queue->lock);
 }
 
 // Returns a pointer to the TCB if one exists with the given TID.
@@ -224,7 +222,7 @@ TCB* find_tcb_by_tid(int tid) {
 	TCB* temp;
 
 	// first check the running thread
-	if (running_thread->tid == tid) {
+	if (running_thread != NULL && running_thread->tid == tid) {
 		temp = running_thread;
 		running_thread = NULL;
 		return temp;
@@ -393,7 +391,11 @@ int uthread_create( void *( *start_routine )( void * ), void *arg ) {
 
 // Returns currently running thread id.
 int uthread_self( void ) {
-    return running_thread->tid;
+	if ( running_thread == NULL ) {
+		return main_thread->tid;
+	} else {
+		return running_thread->tid;
+	}
 }
 
 // Changes running thread state to ready and adds it
@@ -406,9 +408,10 @@ int uthread_yield( void ) {
 	// save our context before jumping!
     if ( sigsetjmp(running_thread->jbuf,1) == 0 ) {
 		// go to our scheduler
+    	running_thread = NULL;
     	scheduler();
     }
-	
+
     return 0;
 }
 
@@ -470,13 +473,11 @@ int uthread_terminate( int tid ) {
 int uthread_suspend( int tid ) {
 	TCB* next = NULL;
 
-	// if (running_thread->tid == tid) {
-	// 	next = running_thread;
-	// 	running_thread = NULL;
-	// }
-	// else 
-	
-	if (is_tid_in_queue(tid, &ready_queue)) {
+	if (running_thread != NULL && running_thread->tid == tid) {
+		next = running_thread;
+		running_thread = NULL;
+	}
+	else if (is_tid_in_queue(tid, &ready_queue)) {
 		move_tid_to_front(tid, &ready_queue);
 		next = queue_remove(&ready_queue);
 	}
@@ -484,7 +485,7 @@ int uthread_suspend( int tid ) {
 	if (next != NULL) {
 		queue_add(next, &suspend_queue);
 	}
-	//scheduler();
+
     return 0;
 }
 
@@ -504,7 +505,7 @@ int lock_init( lock_t *lock1 ) {
 
 int acquire( lock_t *lock1 ) {
     while (TAS(&lock1->flag,1)==1){
-        //uthread_suspend(); // yield when lock is not available. Need to know how to pass current thread tid to this call
+        uthread_yield();
     }    
     return 0;
 }
