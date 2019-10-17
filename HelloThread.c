@@ -10,7 +10,7 @@ static int threads[NTHREADS];
 int main (void) {
     int i;
 
-    uthread_setup();
+    uthread_init(0);
 
     for (i = 0; i < NTHREADS; i++){
         threads[i] = uthread_create(&go, NULL);

@@ -439,13 +439,17 @@ int uthread_init( int time_slice ) {
 	sigaddset(&mask, SIGVTALRM);
 	signal(SIGVTALRM, (void (*)(int))scheduler);
 
-	timer.it_value.tv_sec = time_slice / SECOND;
- 	timer.it_value.tv_usec = time_slice % SECOND;
-	timer.it_interval.tv_sec = time_slice / SECOND;
-	timer.it_interval.tv_usec = time_slice % SECOND;
-	setitimer (ITIMER_VIRTUAL, &timer, NULL);
-
 	//sigprocmask(SIGVTALRM,&mask,NULL);
+
+	uthread_setup();
+
+	if (time_slice != 0) {
+		timer.it_value.tv_sec = time_slice / SECOND;
+ 		timer.it_value.tv_usec = time_slice % SECOND;
+		timer.it_interval.tv_sec = time_slice / SECOND;
+		timer.it_interval.tv_usec = time_slice % SECOND;
+		setitimer (ITIMER_VIRTUAL, &timer, NULL);
+	}
 
     return 0;
 }

@@ -13,7 +13,7 @@ void* go(void* nothing) {
     while(1) {
         ++i;
         printf("in thread %i (%d)\n",uthread_self(),i);
-        sleep(1);
+        while(1);
     }
     return 0;
 }
@@ -23,9 +23,9 @@ int main (void) {
     int i;
 
     
-    uthread_setup();
+    //uthread_setup();
 
-    uthread_init(25000);
+    uthread_init(2500000);
 
     for (i = 0; i < NTHREADS; i++) {
         threads[i] = uthread_create(&go, NULL);
