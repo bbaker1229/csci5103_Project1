@@ -2,9 +2,6 @@
 	Definition of uthread functions.
 */
 
-// define xOPEN_SOUCE for timer to work
-#define _XOPEN_SOURCE
-
 // include header files
 #include <stdio.h>
 #include <stdlib.h>
@@ -114,6 +111,7 @@ TCB* threads[QUEUE_SIZE];
 
 // currently running thread
 TCB* running_thread;
+sigset_t mask;
 
 // our main scheduler thread
 TCB* main_thread;
@@ -254,6 +252,8 @@ void scheduler()
 	TCB* next;
 	TCB* finished;
 
+	sigprocmask(SIG_BLOCK, &mask, NULL);
+
 	// quick store our context
 	if (running_thread != NULL) {
 		if (sigsetjmp(running_thread->jbuf, 1) == 1) {
@@ -294,7 +294,9 @@ void scheduler()
 	// context switch to the new running thread
 	next->state = RUNNING;
 	running_thread = next;
-	uthread_init(TIME_SLICE);
+
+	sigprocmask(SIG_UNBLOCK, &mask, NULL);
+
 	siglongjmp(running_thread->jbuf,1);
 
 }
@@ -379,7 +381,7 @@ int uthread_create( void *( *start_routine )( void * ), void *arg ) {
     (tcb->jbuf->__jmpbuf)[JB_SP] = translate_address(tcb->sp);
     (tcb->jbuf->__jmpbuf)[JB_PC] = translate_address(tcb->pc);
     sigemptyset(&tcb->jbuf->__saved_mask);
-	
+
 	// we haven't joined anything yet
 	tcb->joined_tid = -1;
 
@@ -432,17 +434,19 @@ int uthread_join( int tid, void **retval ) {
 /* * * * * * * * * * * */
 int uthread_init( int time_slice ) {
 	struct itimerval timer;
-	struct sigaction sa;
 
-	memset (&sa, 0, sizeof (sa));
- 	sa.sa_handler = &scheduler;
- 	sigaction (SIGVTALRM, &sa, NULL);
+	sigemptyset(&mask);
+	sigaddset(&mask, SIGVTALRM);
+	signal(SIGVTALRM, (void (*)(int))scheduler);
 
 	timer.it_value.tv_sec = time_slice / SECOND;
  	timer.it_value.tv_usec = time_slice % SECOND;
 	timer.it_interval.tv_sec = time_slice / SECOND;
 	timer.it_interval.tv_usec = time_slice % SECOND;
 	setitimer (ITIMER_VIRTUAL, &timer, NULL);
+
+	//sigprocmask(SIGVTALRM,&mask,NULL);
+
     return 0;
 }
 

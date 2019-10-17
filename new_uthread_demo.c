@@ -21,13 +21,17 @@ void* go(void* nothing) {
 int main (void) {
 
     int i;
+
+    
     uthread_setup();
 
-    uthread_init(2500000);
+    uthread_init(25000);
 
     for (i = 0; i < NTHREADS; i++) {
         threads[i] = uthread_create(&go, NULL);
     }
+
+    //scheduler();
 
     while(1);
 

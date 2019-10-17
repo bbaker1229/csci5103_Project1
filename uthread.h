@@ -1,4 +1,3 @@
-#define _XOPEN_SOURCE
 #define NAME_SIZE   10
 
 typedef struct _lock_t {

@@ -1,4 +1,4 @@
-BINARIES := HelloThread new_uthread_demo uthread_demo test1 test2  
+BINARIES := HelloThread new_uthread_demo uthread_demo test1 test2 Signal
 
 all: $(BINARIES)
 OBJ = uthread.o 
@@ -36,3 +36,6 @@ test1: test1.cpp $(OBJ) $(LIB)
 
 test2: test2.cpp $(OBJ) $(LIB)
 	g++ $(CFLAGS) $^ -o $@
+
+Signal: SignalTesting.c 
+	$(CC) $(CFLAGS) $^ -o $@
