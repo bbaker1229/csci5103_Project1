@@ -56,6 +56,8 @@ int main (void) {
     int thread2;
 
     uthread_init(100);
+	
+	lock_init(&lock);
 
     thread1 = uthread_create(&important_func, NULL);
     thread2 = uthread_create(&less_important_func, NULL);
