@@ -13,27 +13,24 @@
 
 int important_variable = 0;
 lock_t lock;
+int total_count = 0;
 
-void* important_func(void* nothing) {
-    int i, j = 0;
+void* worker(void* nothing) {
+    
+    int my_tid = uthread_self();
+    unsigned int count = 0;
 
-    while(i < 20) {
-        ++i;
-        printf("in very important thread %d (%d)\n",uthread_self(),i);
-        for (j = 0; j < 10000; j++);
-        uthread_yield();
+	while(1){
+        count += 1;
+        if(count == 100000000){
+            printf("thread %d\n", my_tid);
+            count = 0;
+            total_count += 1;
+        }
     }
 
-    uthread_terminate(uthread_self());
-    return 0;
-}
-
-void* less_important_func(void* nothing) {
-
-	printf("in less important thread %d\n", uthread_self());
-
-	uthread_terminate(uthread_self());
-	return NULL;
+	uthread_terminate(my_tid);
+    
 }
 
 int main (void) {
@@ -43,17 +40,34 @@ int main (void) {
 
     uthread_init(100);
 
-    thread1 = uthread_create(&important_func, NULL);
-    thread2 = uthread_create(&less_important_func, NULL);
+    printf("Start both threads\n");
+    thread1 = uthread_create(&worker, NULL);
+    thread2 = uthread_create(&worker, NULL);
 
+    while(total_count < 10);
+
+    printf("Suspend thread 0\n");
+    uthread_suspend(thread1);
+    
+    while(total_count < 20);
+    
+    printf("Resume thread 0\n");
+    uthread_resume(thread1);
+
+    while(total_count < 30);
+
+    printf("Suspend thread 1\n");
     uthread_suspend(thread2);
 
-    uthread_join(thread1, NULL);
+    while(total_count < 40);
 
+    printf("Resume thread 1\n");
     uthread_resume(thread2);
 
-    uthread_join(thread2, NULL);
+    while(total_count < 50);
 
+    uthread_join(thread1, NULL);
+    uthread_join(thread2, NULL);
 
     printf("both threads finished\n");
 

@@ -14,39 +14,63 @@
 
 int important_variable = 0;
 lock_t lock;
+int total_count = 0;
 
-void* important_func(void* nothing) {
+
+void* worker1(void* nothing) {
     int i, j = 0;
+
+    int my_tid = uthread_self();
+    unsigned int count = 0;
 
     acquire(&lock);
 
-    while(i < 20) {
-        ++i;
-        printf("in very important thread %d (%d)\n",uthread_self(),i);
-        for (j = 0; j < 10000; j++);
-        uthread_yield();
+    while(1){
+        count += 1;
+        if(count == 100000000){
+            printf("Thread %d has lock\n", my_tid);
+            count = 0;
+            total_count += 1;
+            //printf("Try to yield\n");
+            uthread_yield();
+        }
     }
 
     important_variable = 24;
 
+    printf("important variable: %i\n", important_variable);
     release(&lock);
 
-    uthread_terminate(uthread_self());
-    return 0;
+    printf("Lock Released\n");
+
+    uthread_terminate(my_tid);
 }
 
-void* less_important_func(void* nothing) {
-
-	printf("in less important thread %d\n", uthread_self());
+void* worker2(void* nothing) {
+    int i, j = 0;
+    int my_tid = uthread_self();
+    unsigned int count = 0;
+	printf("thread %d trying to get lock\n", my_tid);
 
 	acquire(&lock);
 
-	printf("lock was finally acquired by less important thread\n");
-	printf("important variable is %d\n", important_variable);
+    while(1){
+        count += 1;
+        if(count == 100000000){
+            printf("lock was finally acquired by less important thread\n");
+	        printf("important variable is %d\n", important_variable);
+            count = 0;
+            //total_count += 1;
+            //printf("Try to yield\n");
+            //uthread_yield();
+        }
+    }
+
+	
 
 	release(&lock);
 
-	uthread_terminate(uthread_self());
+	uthread_terminate(my_tid);
 	return NULL;
 }
 
@@ -55,15 +79,26 @@ int main (void) {
     int thread1;
     int thread2;
 
-    uthread_init(100);
+    int i = 0;
+
+    uthread_init(1000);
 	
 	lock_init(&lock);
 
-    thread1 = uthread_create(&important_func, NULL);
-    thread2 = uthread_create(&less_important_func, NULL);
+    thread1 = uthread_create(&worker1, NULL);
+    thread2 = uthread_create(&worker2, NULL);
+
+    while(total_count < 10);
+
+    while(i < 10000000){
+        i++;
+    }
+
+    uthread_join(thread1, NULL);
+
+    //uthread_yield();
 
     uthread_join(thread2, NULL);
-    uthread_join(thread1, NULL);
 
     printf("both threads finished\n");
 

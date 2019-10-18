@@ -82,6 +82,7 @@ typedef struct TCB {
 	address_t sp;
 	address_t pc;
 	sigjmp_buf jbuf;
+	int main;
 	int joined_tid;
 } TCB;
 
@@ -102,10 +103,6 @@ int thread_count;
 tcb_fifo_t ready_queue;
 tcb_fifo_t suspend_queue;
 tcb_fifo_t finished_queue;
-
-// all finished tid's ever
-int finished_tids[8000] = {-1,};
-int finished_tids_count = 0;
 
 // If we are going to refer to threads by tid can we create an array of TCBs?
 TCB* threads[QUEUE_SIZE];
@@ -129,14 +126,6 @@ int TAS(volatile int *addr, int newval){
     return result;
 }
 
-void queue_init(tcb_fifo_t* queue) {
-	queue->start = 0;
-	queue->end = 0;
-	queue->count = 0;
-	memset(queue->tcb_queue, 0, sizeof(TCB*) * QUEUE_SIZE);
-	lock_init(&queue->lock);
-}
-
 // adds the tcb to the end of the queue
 // returns -1 on fail, 0 on success
 int queue_add(TCB* tcb, tcb_fifo_t* queue) {
@@ -157,7 +146,6 @@ int queue_add(TCB* tcb, tcb_fifo_t* queue) {
 		tcb->state = SUSPEND;
 	} else if ( queue == &finished_queue) {
 		tcb->state = FINISHED;
-		finished_tids[finished_tids_count++] = tcb->tid;
 	}
 
 	// store the tcb pointer and increment our queue counts
@@ -231,9 +219,13 @@ void move_tid_to_front(int tid, tcb_fifo_t* queue) {
 // will remove the TCB* from where it is found, assuming you want
 // to move or delete it anyway.
 TCB* find_tcb_by_tid(int tid) {
+	TCB* temp;
+
 	// first check the running thread
-	if (running_thread->tid == tid) {
-		return running_thread;
+	if (running_thread != NULL && running_thread->tid == tid) {
+		temp = running_thread;
+		running_thread = NULL;
+		return temp;
 	}
 
 	// next check ready queue
@@ -252,39 +244,28 @@ TCB* find_tcb_by_tid(int tid) {
 	return NULL;
 }
 
-// Returns whether a tid has finished;
-bool is_tid_finished(int tid) {
-	int i;
-	for (i = 0; i < finished_tids_count; i++) {
-		if (tid == finished_tids[i]) {
-			return true;
-		}
-	}
-	return false;
-}
-
 // Create the details for the scheduler.
 void scheduler()
 {
 	TCB* next;
 	TCB* finished;
-	TCB* waiting;
-	int i;
-
-	// quick store our context
-	if (sigsetjmp(running_thread->jbuf, 1) == 1) {
-		return;
-	}
 
 	sigprocmask(SIG_BLOCK, &mask, NULL);
 
-	// check if anyone is waiting for a thread to finish
-	for (i = 0; i < suspend_queue.count; i++) {
-		waiting = queue_remove(&suspend_queue);
-		if ( waiting->joined_tid != -1 && is_tid_finished(waiting->joined_tid)) {
-			queue_add(waiting, &ready_queue);
-		} else {
-			queue_add(waiting, &suspend_queue);
+	//printf("Number of tids in ready queue: %i\n", ready_queue.count);
+
+	// quick store our context
+	if (running_thread != NULL) {
+		if (sigsetjmp(running_thread->jbuf, 1) == 1) {
+			return;
+		}
+	}
+
+	// check if main is waiting for a thread to finish
+	if (main_thread->joined_tid != -1) {
+		if (is_tid_in_queue(main_thread->joined_tid, &finished_queue)) {
+			main_thread->joined_tid = -1;
+			siglongjmp(main_thread->jbuf,1);
 		}
 	}
 
@@ -298,12 +279,16 @@ void scheduler()
 	// try to give someone else a chance to run
 	if (ready_queue.count > 0 ) {
 		next = queue_remove(&ready_queue);
-		if (running_thread->state == RUNNING) {
+		if (running_thread != NULL) {
 			queue_add(running_thread, &ready_queue);
 		}
 	// otherwise, see if we were already running someone
-	} else {
+	} else if (running_thread != NULL) {
 		next = running_thread;
+	// hmm, there doesn't seem to be anyone we can run.
+	} else {
+		// let's kick back to main then
+		siglongjmp(main_thread->jbuf,1);
 	}
 
 	// context switch to the new running thread
@@ -320,9 +305,9 @@ void scheduler()
 int uthread_setup() {
 
 	// initialize locks
-	queue_init(&ready_queue);
-	queue_init(&suspend_queue);
-	queue_init(&finished_queue);
+	lock_init(&ready_queue.lock);
+	lock_init(&suspend_queue.lock);
+	lock_init(&finished_queue.lock);
 
 	// allocate the control block structure
 	main_thread = (TCB*) malloc(sizeof(TCB));
@@ -333,7 +318,8 @@ int uthread_setup() {
 	}
 
 	main_thread->state = RUNNING;
-	main_thread->tid = thread_count++;
+	main_thread->tid = 9999;
+	main_thread->main = 1;
 	main_thread->stack_size = STACK_SIZE;
 	char* stack = (char*) malloc(main_thread->stack_size * sizeof(char));
 	if (stack == NULL) {
@@ -352,7 +338,9 @@ int uthread_setup() {
     (main_thread->jbuf->__jmpbuf)[JB_SP] = translate_address(main_thread->sp);
     sigemptyset(&main_thread->jbuf->__saved_mask);
 
-    running_thread = main_thread;
+	queue_add(main_thread, &ready_queue);
+	//printf("Ready queue count: %i\n", ready_queue.count);
+	//printf("Main Thread added to ready queue.\n");
 
 	return 0;
 }
@@ -375,6 +363,7 @@ int uthread_create( void *( *start_routine )( void * ), void *arg ) {
 
 	// start the state at Init
 	tcb->state = INIT;
+	tcb->main = 0;
 
 	// assign thread id
 	tcb->tid = thread_count++;
@@ -405,12 +394,19 @@ int uthread_create( void *( *start_routine )( void * ), void *arg ) {
 	//add the new_tcb to the thread scheduler queue
     queue_add(tcb, &ready_queue);
 
+	//printf("Ready queue count: %i\n", ready_queue.count);
+	//printf("Thread added to ready queue.\n");
+
 	return tcb->tid;
 }
 
 // Returns currently running thread id.
 int uthread_self( void ) {
-	return running_thread->tid;
+	if ( running_thread == NULL ) {
+		return main_thread->tid;
+	} else {
+		return running_thread->tid;
+	}
 }
 
 // Changes running thread state to ready and adds it
@@ -420,7 +416,12 @@ int uthread_yield( void ) {
 	// add running thread to the end of the ready queue
 	queue_add(running_thread, &ready_queue);
 	
-    scheduler();
+	// save our context before jumping!
+    if ( sigsetjmp(running_thread->jbuf,1) == 0 ) {
+		// go to our scheduler
+    	running_thread = NULL;
+    	scheduler();
+    }
 
     return 0;
 }
@@ -430,12 +431,15 @@ int uthread_yield( void ) {
 // main_thread;
 int uthread_join( int tid, void **retval ) {
 	// make a note of who we're waiting for
-	running_thread->joined_tid = tid;
+	main_thread->joined_tid = tid;
 	
-	queue_add(running_thread, &suspend_queue);
-
-    scheduler();
+    // save our context before jumping!
+    if ( sigsetjmp(main_thread->jbuf,1) == 0 ) {
+		// go to our scheduler
+    	scheduler();
+    }
 	
+	// if we ended up here, the joined thread must be finished!
 	return 0;
 }
 
@@ -474,15 +478,15 @@ int uthread_terminate( int tid ) {
 	}
 
 	scheduler();
-
     return 0;
 }
 
 int uthread_suspend( int tid ) {
 	TCB* next = NULL;
 
-	if (running_thread->tid == tid) {
+	if (running_thread != NULL && running_thread->tid == tid) {
 		next = running_thread;
+		running_thread = NULL;
 	}
 	else if (is_tid_in_queue(tid, &ready_queue)) {
 		move_tid_to_front(tid, &ready_queue);
@@ -493,19 +497,27 @@ int uthread_suspend( int tid ) {
 		queue_add(next, &suspend_queue);
 	}
 
-	scheduler();
-
     return 0;
 }
 
 int uthread_resume( int tid ) {
-	if (is_tid_in_queue(tid, &suspend_queue)) {
-		move_tid_to_front(tid, &suspend_queue);
-		queue_add(queue_remove(&suspend_queue), &ready_queue);
+	TCB* next = NULL;
+
+	// quick store our context
+	if (running_thread != NULL) {
+		if (sigsetjmp(running_thread->jbuf, 1) == 1) {
+			return;
+		}
 	}
 
-	scheduler();
-
+	if (is_tid_in_queue(tid, &suspend_queue)) {
+		move_tid_to_front(tid, &suspend_queue);
+		//queue_add(queue_remove(&suspend_queue), &ready_queue);
+		next = queue_remove(&suspend_queue);
+		queue_add(running_thread, &ready_queue);
+		running_thread = next;
+		siglongjmp(running_thread->jbuf,1);
+	}
     return 0;
 }
 
