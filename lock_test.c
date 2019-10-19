@@ -11,94 +11,74 @@
 #include "uthread.h"
 #include <stdio.h>
 #include <unistd.h>
+#define CNT 5
+#define CNT2 4
 
 int important_variable = 0;
 lock_t lock;
 int total_count = 0;
 
 
-void* worker1(void* nothing) {
+void* worker(void* nothing) {
     int i, j = 0;
-
     int my_tid = uthread_self();
-    unsigned int count = 0;
 
-    acquire(&lock);
+	for (i=0; i<=CNT2;i++){
+	    printf("Thread %d request lock\n", my_tid);
+        acquire(&lock);
 
-    while(1){
-        count += 1;
-        if(count == 100000000){
+        for (j=0;j<=CNT;j++){
             printf("Thread %d has lock\n", my_tid);
-            count = 0;
             total_count += 1;
-            //printf("Try to yield\n");
+//          printf("Thread %d yielding\n", my_tid);
             uthread_yield();
         }
-    }
 
     important_variable = 24;
 
-    printf("important variable: %i\n", important_variable);
+    printf("Thread %d releasing lock...\n", my_tid);
     release(&lock);
-
     printf("Lock Released\n");
+	uthread_yield();
+	}
 
     uthread_terminate(my_tid);
-}
-
-void* worker2(void* nothing) {
-    int i, j = 0;
-    int my_tid = uthread_self();
-    unsigned int count = 0;
-	printf("thread %d trying to get lock\n", my_tid);
-
-	acquire(&lock);
-
-    while(1){
-        count += 1;
-        if(count == 100000000){
-            printf("lock was finally acquired by less important thread\n");
-	        printf("important variable is %d\n", important_variable);
-            count = 0;
-            //total_count += 1;
-            //printf("Try to yield\n");
-            //uthread_yield();
-        }
-    }
-
-	
-
-	release(&lock);
-
-	uthread_terminate(my_tid);
-	return NULL;
+    return NULL;
 }
 
 int main (void) {
 
-    int thread1;
-    int thread2;
-
+    int thread_count = 2;
     int i = 0;
+
+    int threads[thread_count];
+
+    //int thread1;
+    //int thread2;
 
     uthread_init(1000);
 	
 	lock_init(&lock);
 
-    thread1 = uthread_create(&worker1, NULL);
-    thread2 = uthread_create(&worker2, NULL);
+	for (i = 0; i < thread_count; i++) {
+		int tid = uthread_create(&worker, NULL);
+		printf("tid=%d\n", tid);
+		threads[i] = tid;
+	}
 
-    while(total_count < 10);
+    //thread1 = uthread_create(&worker, NULL);
+    //thread2 = uthread_create(&worker, NULL);
 
-    while(i < 10000000){
-        i++;
-    }
+    while(total_count < CNT*CNT2)
 
-    uthread_join(thread1, NULL);
+	for (i = 0; i < thread_count; i++) {
+		uthread_join(threads[i], NULL);
+	}
 
-    //uthread_yield();
+    //uthread_join(thread1, NULL);
 
-    uthread_join(thread2, NULL);
+    //uthread_join(thread2, NULL);
+ 
 
     printf("both threads finished\n");
 

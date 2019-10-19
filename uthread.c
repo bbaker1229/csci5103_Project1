@@ -506,7 +506,7 @@ int uthread_resume( int tid ) {
 	// quick store our context
 	if (running_thread != NULL) {
 		if (sigsetjmp(running_thread->jbuf, 1) == 1) {
-			return;
+			return 0;
 		}
 	}
 
