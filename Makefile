@@ -1,4 +1,4 @@
-BINARIES := HelloThread new_uthread_demo uthread_demo test1 test2 Signal
+BINARIES := T1_hello_thread T2_resume_test T3_lock_test T4_uthread_demo test1 test2 uthread_demo
 
 all: $(BINARIES)
 OBJ = uthread.o 
@@ -22,13 +22,16 @@ tags:
 %.o: %.c
 	$(CC) -c $(CFLAGS) $< -o $@
 
-HelloThread: HelloThread.c $(OBJ) $(LIB)
+T1_hello_thread: T1_hello_thread.c $(OBJ) $(LIB)
 	$(CC) $(CFLAGS) $^ -o $@
 
-new_uthread_demo: new_uthread_demo.c $(OBJ) $(LIB)
+T2_resume_test: T2_resume_test.c $(OBJ) $(LIB)
 	$(CC) $(CFLAGS) $^ -o $@
 
-uthread_demo: uthread_demo.c 
+T3_lock_test: T3_lock_test.c $(OBJ) $(LIB)
+	$(CC) $(CFLAGS) $^ -o $@
+
+T4_uthread_demo: T4_uthread_demo.c $(OBJ) $(LIB)
 	$(CC) $(CFLAGS) $^ -o $@ 
 
 test1: test1.cpp $(OBJ) $(LIB)
@@ -37,5 +40,5 @@ test1: test1.cpp $(OBJ) $(LIB)
 test2: test2.cpp $(OBJ) $(LIB)
 	g++ $(CFLAGS) $^ -o $@
 
-Signal: SignalTesting.c 
+uthread_demo: uthread_demo.c 
 	$(CC) $(CFLAGS) $^ -o $@

@@ -80,16 +80,22 @@ Intro to Operating Systems Project 1 - User-level Thread Library
     - Return Value: Zero upon success.
 
 - **release**:
-    - Purpose: Used to free a lock after running a section of code that should not be interrupted.  The flag for the lock is set to 0 or free prior to exiting release.  This is used similar to acquire above.  
+    - Purpose: Used to free a lock after running a section of code that should not be interrupted.  The flag for the lock is set to 0 or free prior to exiting release.  This is used opposite to acquire above.  
     - Input: a pointer to a lock structure variable.
     - Output: A thread will release a lock.
     - Return Value: Zero upon success.
 
 ## Customized API Items Added
 
+None
+
 ## Passing Input/Output Parameters
 
+Input and output parameters for this implementation are only passed via global variables.
+
 ## Effects of Time Slice
+
+A shorter time slice gives a shorter amount of time to the threads before it is preempted back to the scheduler.  
 
 ## Critical Sections of Code Where Locks Required
 
@@ -97,19 +103,30 @@ Locks were used for all of the queues to ensure that the thread does not get dis
 
 ## Scheduling Algorithum
 
-The scheduling algorithum first saves the state of the running thread.  Next the main thread reviewed the finished queue to see if there are threads to remove and free and does so if they are there.  The scheduler will next check the ready queue and select another thread if one is available.  Otherwise the running thread will continue.
+The scheduling algorithum first saves the state of the running thread.  Next the suspend queue is checked to see if there was a thread waiting for another thread to finish.  Afterwards, the main thread reviews the finished queue to see if there are threads to remove and free and does so if they are there.  The scheduler will next check the ready queue and select another thread if one is available.  Otherwise the running thread will continue.
 
 ## Signal Masks
+
+Only one signal mask is used for this implementation.  The mask is implemented globaly and if a signal is recieved during processing of the running thread the control is sent to the scheduler.  Once a new thread is chosen, if required, the signal mask is reset.  
 
 ## Test Files
 To build test files use `make`
 
-**HelloThread**
-This tests the functions for uthread_create, uthread_join, uthread_self, and uthread_terminate.
+**T1_hello_thread**
+This tests the functions for uthread_init, uthread_create, uthread_join, uthread_self, and uthread_terminate.  This functions similar to the hello thread example from the book. 
+10 threads are created, each thread prints a Hello message and then each thread is returned to the main thread.  The main thread then completes and the program ends.
 
-**new_uthread_demo**
-This tests uthread_init.
+**T2_resume_test**
+This primarily tests the functions for uthread_suspend and uthread_resume.  Two threads are created and then one thread is suspended and then resumed, then the other thread is suspended and resumed.  
 
-```
-Need to test out uthread_yield, uthread_suspend, uthread_resume, and create locks to acquire and release.
-```
+**T3_lock_test**
+this primarily tests the lock functions for lock_init, acquire, and release, but also tests uthread_yield.  Two threads are created and then one thread acquires a lock and yields to the other thread.  The other thread continually tried to acquire the lock, but yields.  Finally the first thread will release the lock and then the second thread can acquire the lock.  This process is repeated.
+
+**T4_uthread_demo**
+This tests uthread_init and functions similar to the demo given as an example for this project.  10 threads are created and each thread starts counting using separate counters to see if context switching will keep their set points.  This runs continually.  
+
+**test1**
+Test provided for project.  This creates a number of threads which process points to give an approximation to pi.  
+
+**test2**
+Test provided for project.  This creates a number of threads and suspends the first thread.  The rest of the threads process over time and then the first thread is resumed.  You can see that the first section of the test the thread numbers do not include thread 1 and then after it is resumed you can see that thread 1 has returned.  
