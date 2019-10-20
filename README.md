@@ -9,7 +9,11 @@ Intro to Operating Systems Project 1 - User-level Thread Library
 
 ## Assumptions
 
-- asdf
+- There are never more than 150 active threads in the process.
+- There are never more than 8000 total threads for a process.
+- Arguments passed to uthread_create will always be NULL.
+- Return values from thread worker functions will always be NULL.
+- Thread worker functions will always call uthread_terminate on completion.
 
 ## Function Definitions
 
@@ -95,15 +99,17 @@ Input and output parameters for this implementation are only passed via global v
 
 ## Effects of Time Slice
 
-A shorter time slice gives a shorter amount of time to the threads before it is preempted back to the scheduler.  
+A shorter time slice gives a shorter amount of time to the threads before it is preempted back to the scheduler. If the time slice is too short, it may not give a thread enough time to complete a significant amount of work and there is more overhead for performing context switches. If the time slice is too long then in may take longer for control to reach every thread.  
 
 ## Critical Sections of Code Where Locks Required
 
 Locks were used for all of the queues to ensure that the thread does not get disrupted when adding or removing a thread from a queue.  If this were not used a thread could get "lost" or the wrong thread could get added to a queue.
 
-## Scheduling Algorithum
+## Scheduling Algorithm
 
-The scheduling algorithum first saves the state of the running thread.  Next the suspend queue is checked to see if there was a thread waiting for another thread to finish.  Afterwards, the main thread reviews the finished queue to see if there are threads to remove and free and does so if they are there.  The scheduler will next check the ready queue and select another thread if one is available.  Otherwise the running thread will continue.
+The scheduling algorithm first saves the state of the running thread.  Next the suspend queue is checked to see if there was a thread waiting for another thread to finish.  Afterwards, the main thread reviews the finished queue to see if there are threads to remove and free and does so if they are there.  The scheduler will next check the ready queue and select another thread if one is available.  Otherwise the running thread will continue.
+
+This scheduling results in a FIFO round robin scheduler for every thread that's status is READY.
 
 ## Signal Masks
 
@@ -120,13 +126,13 @@ This tests the functions for uthread_init, uthread_create, uthread_join, uthread
 This primarily tests the functions for uthread_suspend and uthread_resume.  Two threads are created and then one thread is suspended and then resumed, then the other thread is suspended and resumed.  
 
 **T3_lock_test**
-this primarily tests the lock functions for lock_init, acquire, and release, but also tests uthread_yield.  Two threads are created and then one thread acquires a lock and yields to the other thread.  The other thread continually tried to acquire the lock, but yields.  Finally the first thread will release the lock and then the second thread can acquire the lock.  This process is repeated.
+This primarily tests the lock functions for lock_init, acquire, and release, but also tests uthread_yield.  Two threads are created and then one thread acquires a lock and yields to the other thread.  The other thread continually tried to acquire the lock, but yields.  Finally the first thread will release the lock and then the second thread can acquire the lock.  This process is repeated.
 
 **T4_uthread_demo**
 This tests uthread_init and functions similar to the demo given as an example for this project.  10 threads are created and each thread starts counting using separate counters to see if context switching will keep their set points.  This runs continually.  
 
 **test1**
-Test provided for project.  This creates a number of threads which process points to give an approximation to pi.  
+Test provided for project.  This creates a number of threads which process points to give an approximation to pi. This works best when number of points is a multiple of number of threads such as 1000 points and 10 threads.  
 
 **test2**
 Test provided for project.  This creates a number of threads and suspends the first thread.  The rest of the threads process over time and then the first thread is resumed.  You can see that the first section of the test the thread numbers do not include thread 1 and then after it is resumed you can see that thread 1 has returned.  

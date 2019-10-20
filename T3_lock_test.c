@@ -8,7 +8,6 @@
 #include <stdio.h>
 #include <unistd.h>
 
-int important_variable = 0;
 lock_t lock;
 int total_count = 0;
 const int CNT=5;
@@ -26,11 +25,8 @@ void* worker(void* nothing) {
         for (j=0;j<=CNT;j++){
             printf("Thread %d has lock\n", my_tid);
             total_count += 1;
-//          printf("Thread %d yielding\n", my_tid);
             uthread_yield();
         }
-
-        important_variable = 24;
 
         printf("Thread %d releasing lock...\n", my_tid);
         release(&lock);
@@ -53,7 +49,7 @@ int main (void) {
     thread1 = uthread_create(&worker, NULL);
     thread2 = uthread_create(&worker, NULL);
 
-    while(total_count < CNT*CNT2)
+    while(total_count < CNT*CNT2);
 
     uthread_join(thread1, NULL);
     uthread_join(thread2, NULL);
